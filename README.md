@@ -1,13 +1,13 @@
 # Risk Factors for Mortality of Patients with Post-COVID-19 Vaccination Adverse Reactions 
+
+
 ****
-
-
 ## Project Overview
 
-***
 
-## Data Collection
 ***
+## Data Collection
+
 
 The study included 375,804 patients who reported to experience post-COVID-19 vaccination side effects in the year 2020 and 2021 in the U.S. A raw dataset was collected from the Vaccination Adverse Reporting System(***VAERS***). The dataset contained the information about patients who had a vaccination and reported adverse reactions after that. This study only considered patients with post-COVID-19 vaccination adverse effects. 
 
@@ -37,10 +37,10 @@ Following patient's information from the dataset was included in the analysis :
 
 
 
-
+***
 ## Data Processing
 
-***
+
 
 The raw dataset was pre-processed in the following steps:
 
@@ -67,9 +67,9 @@ Comorbidity Features
 
 
 
-
-## Statistical Analysis 
 ***
+## Statistical Analysis 
+
 
 A descriptive analysis was performed to assess the distribution of patient demographic characteristics, clinical characteristics, and survival status (Alive vs Died). Age was expressed as mean (SD). All other variables except Age were categorical and expressed as counts and percentages. χ2 test was used to test for statistical differences between different groups for categorical variables. The mean age difference between the two survival groups was examined using t-test. A 2-sided P<.05 was considered statistically significant.
 
@@ -78,9 +78,9 @@ Multiple logistic regression was performed to assess the association between ind
 All analyses were conducted using R, version 4.1.0. 
 
 
-
-## Results
 ***
+## Results
+
 ### Patient Characteristics 
 
 A total of 375,804 patients who reported post-COVID-19 side effects, including 371,185 (98.8%) patients were alive at the time of data collection and 4,619 (1.2%) deceased patients were analysed. The mean age (SD) was 48.6 (18.0) years for patients who were survived and 73.5 (15.8) years for those who died. Patients aged 65 years and older accounted for 22.32% of the total sample (83,891 patients) and 75.9% of all deaths (3510 of 4619). While more women suffered from adverse reactions after COVID-19 vaccination (272,142 patients [72.4%]), there were more deaths in men (2,597 [56.2%]) [Table 1](https://github.com/JiyoungLee90/COVID-19-Adverse-Reaction/blob/main/table1.pdf).
@@ -127,7 +127,6 @@ Hospital admission status was associated with a higher risk of death
 
 
 
-***
 ***
 
 
