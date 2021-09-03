@@ -1,0 +1,515 @@
+---
+title: Risk factors for mortality in patients with post COVID-19 vaccination adverse reactions 
+output: github_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Data Prepration 
+### 1.1 Load the data 
+```{r}
+setwd("~/covid-adv")
+covid_adv <-read.csv("./covid_adv.csv")
+print(head(covid_adv, n = 5))
+```
+
+### 1.2 Transform the data
+#### Label Encoding 
+```{r}
+# reorder columns 
+df <-covid_adv[c("VAERS_ID","AGE_YRS","AGE_GRP","SEX","DIED","HOSPITAL",
+                 "DISABLE","L_THREAT","BIRTH_DEFECT","Asthma_c","Hypertension_c",
+                "Diabetes_c","Anxiety_c","Allergy_c","Arthritis_c","Depression_c",
+                      "Hypothyroidsm_c","High_Cholesterol_c","Heart_Disease_c","GERD_c",
+                      "Cancer_c","Obesity_c","Migraine_c","Kidney_Disease_c",
+                      "COVID19_Positive","Headache","Pyrexia","Fatigue","Chills",
+                      "Swelling","Rash","Dizziness","Nausea","Pruritus","Erythema",
+                      "Myalgia","Dyspnoea","Paraesthesia", "Hypoaesthesia", "Asthenia",
+                      "Muscle_weakness","Vomiting","Hyperhidrosis","Urticaria",
+                      "Diarrhoea","Abdominal","Malaise","Tinnitus","Palpitations",
+                      "Flushing","Blood_pressure_increased","Feeling_abnormal",
+                      "Feeling_hot","Tremor","Lymphadenopathy","Syncope",
+                      "Throat_irritation","Unresponsive_stimuli","Burning_sensation",
+                      "Muscle_tightness","Skin_issues","Dyskinesia",
+                      "Heart_rate_increased","Heart_rate_decreased",
+                      "Heart_rate_irregular","Paralysis","Tachycardia",
+                      "Anaphylactic_reaction","Cardiac_event","Chest_pain","Pain",
+                      "Mobility_decreased","Stroke","Influenza","SARS.COV.2",
+                      "Appetite_decreased","Induration","Sleep.disorder",
+                      "Condition_aggravated", "Joint_issues","VAX_MANU")]
+
+
+df[['SEX']] <-ifelse(df[['SEX']] == 'F', 1, 0)
+df[['DIED']] <- ifelse(df[['DIED']] == 'Yes', 1, 0)
+cat_cols <- colnames(covid_adv)
+cols_to_remove <-c('VAERS_ID', 'AGE_YRS', 'DIED',
+                    'AGE_GRP','SEX', 'VAX_MANU')
+cols <- cat_cols [! cat_cols %in% cols_to_remove]
+
+for (c in cols){
+  df[[c]] <- ifelse(df[[c]] =='Yes', 1, 0)
+}
+
+# set VAX_MANU as factor variable
+df$VAX_MANU <-factor(df$VAX_MANU)
+df$AGE_GRP <- factor(df$AGE_GRP)
+```
+
+## 2. Statistical Analysis
+
+### 2.1 Chi-Squared Test
+Chi-squared test was used to assess if there is an **association** between
+
++ patient's demographic factor (age group, gender)
++ patient's medical history (comorbidities)
++ having a particular adverse reaction symptom
++ other factor (e.g, manufacturer of vaccination)
+
+and mortality. 
+
+```{r, fig.width = 5, fig.height = 5}
+
+library(MASS)
+library(ggplot2)
+chi_func <-function(col_name){
+  c_table <-table(df$DIED, col_name)
+  c_test <-chisq.test(c_table)
+  return(c_test$p.value)
+}
+
+#cols to test
+test_cols <- colnames(df)
+cols_to_remove <-c('VAERS_ID', 'AGE_YRS', 'DIED')
+test_cols <- test_cols [! test_cols %in% cols_to_remove]
+
+#loop for applying chi-squared test
+p_values <- c() 
+for(i in 1:length(test_cols)){
+  test_col <- test_cols[i]
+  p <- chi_func(df[[test_col]])
+  p_values <- append(p_values, p)
+}
+
+# data frame for p-value and corresponding variable
+chisq_test_result <- data.frame(test_cols, p_values)
+colnames(chisq_test_result) <- c('Variable', 'p_values')
+
+# sort out variables that are associated with mortality with p < 0.05
+significant <-c()
+for(j in chisq_test_result[['p_values']]){
+  if(j <0.05){
+    significant <-append(significant, 'Yes')
+  }else{
+    significant <-append(significant, 'No')
+  }
+}
+chisq_test_result$Significant <- significant
+
+# -log(p-value)
+log_10 <- c()
+for(p in chisq_test_result[['p_values']]){
+  l <- -log10(p)
+  log_10 <- append(log_10, l)
+}
+
+chisq_test_result$LogP_value <- log_10
+
+print(head(chisq_test_result, n = 5))
+
+
+# chi-squared test results visualisation
+ggplot(data = chisq_test_result, aes(x = reorder(Variable, LogP_value), y = LogP_value )) + geom_bar(stat = 'Identity', fill = 'steelblue') + coord_flip() + labs(title = 'Chi-squared test results', y = " -Log10 p-value", x = "Features") + geom_hline(yintercept = -log10(0.05),color = 'gold1', size = 0.5) + coord_flip(ylim=c(0, 10)) 
+```
+
+### 2.2 Logistic Regression Analysis
+
+#### 2.2.1 Adjusting for age and sex
+
+Logistic regression analyses were performed to assess the respective independent effects of symptoms and other factors on mortality after adjusting for age and gender.
+
+- Age
+```{r age}
+# reference set to alive 
+df$DIED <- factor(df$DIED, levels = c(0, 1), labels = c('No', 'Yes'))
+df$DIED<- relevel(df$DIED, ref = 'No')
+
+# age 
+##age in yrs
+OR <- c()
+P <-c()
+CI_low <- c()
+CI_high <- c()
+variable_name <-c('Age in years', '+80', '18 - 34', '35 - 49', '50 - 64', 
+                  '65 - 79')
+
+age_m <- glm(DIED ~ AGE_YRS, family = binomial, data = df)
+or <- coef(age_m)[2] # coefficient
+OR <- append(OR, exp(or))
+p  <- coef(summary(age_m))[, 'Pr(>|z|)'][2]
+P <- append(P, p)
+conf_age <- confint(age_m)
+conf_low <- conf_age[2,1] # low CI
+conf_high <- conf_age[2,2] # high CI
+CI_low <- append(CI_low, exp(conf_low))
+CI_high<- append(CI_high, exp(conf_high))
+
+# age in grp
+df$AGE_GRP<- relevel(df$AGE_GRP, ref = '0-17')
+age_m_grp <- glm(DIED ~ AGE_GRP, family = binomial, data = df)
+conf_age_grp <- confint(age_m_grp)
+for(i in 2:6){
+  or <- coef(age_m_grp)[i] # coefficient
+  OR <- append(OR, exp(or))
+  p  <- coef(summary(age_m_grp))[, 'Pr(>|z|)'][i]
+  P <- append(P, p)
+  conf_low <- conf_age_grp[i,1] # low CI
+  CI_low <- append(CI_low, exp(conf_low))
+  conf_high <- conf_age_grp[i,2] # high CI
+  CI_high<- append(CI_high, exp(conf_high))
+}
+
+## create df
+age_df <- data.frame(variable_name, OR, CI_low, CI_high, P)
+colnames(age_df) <- c('Factors', 'OR','CI_2.5', 'CI_97.5', 'P_value')
+
+## reorder 
+library(dplyr)
+age_order <- c('Age in years', '18 - 34', '35 - 49', 
+               '50 - 64', '65 - 79', '≥80')
+age_df <- age_df %>%
+  slice(match(age_order, Factors))
+```
+
+- Age & Sex
+```{r age & sex}
+
+# age & sex
+age_sex_m <- glm(DIED ~ AGE_YRS + SEX , family = binomial, data = df)
+or <- exp(coef(age_sex_m)[3]) # coefficient
+p  <- coef(summary(age_sex_m))[, 'Pr(>|z|)'][3]
+conf_age_sex <- confint(age_sex_m)
+conf_low <- exp(conf_age_sex[3,1]) # low CI
+conf_high <- exp(conf_age_sex[3,2]) # high CI
+
+sex_df <- data.frame('Gender, Female vs Male', or, conf_low, conf_high, p)
+names(sex_df) <- colnames(age_df)
+age_sex_df <- rbind(age_df,sex_df )
+
+```
+- Other variables
+
+```{r other variables}
+# other variables 
+features <- colnames(df)
+feature_to_remove <- c('VAERS_ID', 'AGE_YRS', 'AGE_GRP', 'DIED', 'SEX', 'VAX_MANU')
+features <- features [! features %in% feature_to_remove]
+
+OR <- c()
+P <-c()
+CI_low <- c()
+CI_high <- c()
+factor_names <- colnames(df[6:80])
+
+for(f in seq_along(features)){
+  vars <-as.formula(sprintf("DIED ~ AGE_YRS + SEX + %s", features[f]))
+  logit <-glm(formula = vars, family = binomial, data = df)
+  or <- coef(logit)[4] # coefficient
+  OR <- append(OR, exp(or)) # odd ratio
+  P <- append(P, coef(summary(logit))[, 'Pr(>|z|)'][4])
+  conf_other <- confint(logit)
+  conf_low <- conf_other[4,1] # low CI
+  conf_high <- conf_other[4,2] # high CI
+  CI_low <- append(CI_low, exp(conf_low))
+  CI_high<- append(CI_high, exp(conf_high))
+}
+
+other_df <- data.frame(factor_names, OR, CI_low, CI_high, P)
+colnames(other_df) <- c('Factors', 'OR','CI_2.5', 'CI_97.5', 'P_value')
+
+# combine dfs
+odd_df <- rbind(age_sex_df,other_df )
+```
+
+```{r vaccine manufacturer}
+# vaccine manufacturer
+vac_m <- glm(DIED ~ AGE_YRS + SEX + VAX_MANU, family = binomial,
+             data = df)
+or <- exp(coef(vac_m)[4]) # coefficient
+p  <- coef(summary(vac_m))[, 'Pr(>|z|)'][4]
+conf_vac <- confint(vac_m)
+conf_low <- exp(conf_vac[4,1]) # low CI
+conf_high <- exp(conf_vac[4,2]) # high CI
+
+MODERNA <- data.frame('MODERNA', or, conf_low, conf_high, p)
+names(MODERNA) <-colnames(odd_df)
+odd_df <- rbind(odd_df, MODERNA)
+
+or <- exp(coef(vac_m)[5]) # coefficient
+p  <- coef(summary(vac_m))[, 'Pr(>|z|)'][5]
+conf_low <- exp(conf_vac[5,1])# low CI
+conf_high <- exp(conf_vac[5,2]) # high CI
+
+PFIZER <- data.frame('PFIZER', or, conf_low, conf_high, p)
+names(PFIZER) <-colnames(odd_df)
+odd_df <- rbind(odd_df, PFIZER)
+
+write.csv(odd_df, 'logit_results_uni.csv')
+
+```
+
+
+#### 2.2.2 Fully adjusted 
+
+```{r}
+library(R.utils)
+
+full_m <- glm(DIED ~ . -VAERS_ID -AGE_GRP, family = binomial, data = df)
+
+OR <- c()
+P <- coef(summary(full_m))[, 'Pr(>|z|)'][2:79]
+P <- insert(P, 61, values = 999) # need to mark as NA later
+CI_low <- c()
+CI_high <- c()
+
+conf <- confint(full_m)
+
+
+for(j in 2:80){
+  or <- coef(full_m)[j]
+  OR <- append(OR, exp(or))
+  conf_low <- conf[j,1]
+  CI_low <- append(CI_low, exp(conf_low))
+  conf_high <- conf[j,2]
+  CI_high<- append(CI_high, exp(conf_high))
+}
+
+"# insert values empty values for age group 
+OR <- insert(OR, ats = 2:10, values =rep(" ", 9))
+P <- insert(P, ats = 2:10, values =rep(" ", 9))
+CI_low <- insert(CI_low, ats = 2:10, values =rep(" ", 9))
+CI_high <- insert(CI_high, ats = 2:10, values =rep(" ", 9))"
+
+full_df <- data.frame(OR, CI_low, CI_high, P)
+names(full_df) <- c('OR','CI_2.5', 'CI_97.5', 'P_value')
+
+write.csv(full_df, 'logit_results_full.csv')
+
+```
+
+#### 2.2.3 Visualisation (adjusted for age & sex)
+```{r fig.width = 5, fig.height = 5}
+# visualisation of logistic regression results
+boxLables <- odd_df$Factors
+
+ggplot(odd_df, aes(x = OR, y = length(odd_df$Factors):1)) + 
+  geom_vline(aes(xintercept = 1), size = .40, linetype = 'dashed',
+             color = 'red') + 
+  geom_errorbarh(aes(xmax = CI_97.5, xmin = CI_2.5), size = .5,
+                 height = .2, color = 'gray50') +
+  geom_point(size = 2.5, color = 'orange') +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) +
+  scale_y_continuous(breaks = length(odd_df$Factors):1, 
+                     labels = odd_df$Factors) +
+  #scale_x_continuous(breaks = seq(0, 3, 0.5)) +
+  scale_x_continuous(limits = c(0, 3, 0.5)) +
+  ylab("") + xlab("Odds Ratio")
+
+```
+## 3. Tables
+### 3.1 Table 1 - Descriptive statistics of baseline characteristics 
+```{r}
+library(compareGroups)
+
+# reorder columns 
+covid_df <- covid_adv[c("VAERS_ID","AGE_YRS","AGE_GRP","SEX","DIED","HOSPITAL",
+                      "DISABLE","L_THREAT","BIRTH_DEFECT","Asthma_c","Hypertension_c",
+                      "Diabetes_c","Anxiety_c","Allergy_c","Arthritis_c","Depression_c",
+                      "Hypothyroidsm_c","High_Cholesterol_c","Heart_Disease_c","GERD_c",
+                      "Cancer_c","Obesity_c","Migraine_c","Kidney_Disease_c",
+                      "COVID19_Positive","Headache","Pyrexia","Fatigue","Chills",
+                      "Swelling","Rash","Dizziness","Nausea","Pruritus","Erythema",
+                      "Myalgia","Dyspnoea","Paraesthesia", "Hypoaesthesia", "Asthenia",
+                      "Muscle_weakness","Vomiting","Hyperhidrosis","Urticaria",
+                      "Diarrhoea","Abdominal","Malaise","Tinnitus","Palpitations",
+                      "Flushing","Blood_pressure_increased","Feeling_abnormal",
+                      "Feeling_hot","Tremor","Lymphadenopathy","Syncope",
+                      "Throat_irritation","Unresponsive_stimuli","Burning_sensation",
+                      "Muscle_tightness","Skin_issues","Dyskinesia",
+                      "Heart_rate_increased","Heart_rate_decreased",
+                      "Heart_rate_irregular","Paralysis","Tachycardia",
+                      "Anaphylactic_reaction","Cardiac_event","Chest_pain","Pain",
+                      "Mobility_decreased","Stroke","Influenza","SARS.COV.2",
+                      "Appetite_decreased","Induration","Sleep.disorder",
+                      "Condition_aggravated", "Joint_issues","VAX_MANU")]
+
+
+# Factor variables 
+covid_df$DIED <- factor(covid_df$DIED, levels = c('No', 'Yes'), labels = c('Alive',
+                                                                      'Died'))
+covid_df$SEX <- factor(covid_df$SEX, levels = c('M', 'F'), labels = c('Male',
+                                                                      'Female'))
+covid_df$AGE_GRP <-factor(covid_df$AGE_GRP, levels = c('0-17', '18-34', '35-49','50-64', 
+                                      '65-79','>= 80'), 
+                          labels =  c('0 - 17', '18 - 34', '35 - 49','50 - 64', 
+                                      '65 - 79','>= 80'))
+#cat_cols
+cat_cols <- colnames(covid_df)
+cols_to_remove <-c('VAERS_ID', 'AGE_YRS','VAX_MANU')
+cat_cols<- cat_cols [! cat_cols %in% cols_to_remove]
+
+for(i in 1:length(cat_cols)){
+  cat_col <- cat_cols[i]
+  covid_df[[cat_col]] <- factor(covid_df[[cat_col]])
+}
+
+# Label variables 
+library(stringr)
+library(Hmisc)
+
+label(covid_df$SEX) <- 'Gender, n(%)'
+
+comorb_cols <- colnames(covid_df[10:24])
+for (j in 1:length(comorb_cols)){
+  col <- comorb_cols[j]
+  label(covid_df[[col]]) <- str_sub(col, 1, -3)
+}
+
+label(covid_df$COVID19_Positive) <- 'Covid-19 positive history'
+label(covid_df$VAX_MANU) <- 'Vaccine manufacturer'
+label(covid_df$AGE_YRS) <- 'Age, mean(SD)'
+label(covid_df$AGE_GRP) <- 'Age by group, n(%)'
+label(covid_df$HOSPITAL) <- 'Hospital admission status, n(%)'
+label(covid_df$DISABLE) <- 'Post-vaccination disability, n(%)'
+label(covid_df$L_THREAT) <- 'Life-threatening event, n(%)'
+label(covid_df$BIRTH_DEFECT) <- 'Birth defeat, n(%)'
+
+# computing descriptives 
+res<- compareGroups(DIED ~ . - VAERS_ID, data = covid_df)
+res_all<- compareGroups( ~ . - VAERS_ID - DIED, data = covid_df)
+
+# creating table 
+table1 <- createTable(res, hide.no = 'No', show.n = FALSE) # without grouping 
+table1_all <- createTable(res_all, hide.no = 'No', show.n = FALSE)
+
+#join groups of variables by row
+table1_grp <- rbind(" " = table1[1:7],
+                 "Comorbidities, n(%)" = table1[8:23], 
+                 "Symptoms, n(%)" =  table1[24:79])
+
+table1_all_grp <- rbind(" " = table1_all[1:7],
+                 "Comorbidities, n(%)" = table1_all[8:23], 
+                 "Symptoms, n(%)" =  table1_all[24:79])
+
+# combine two tables 
+table1_comb <-cbind(table1_all_grp, table1_grp, caption = c(' ', ' ')) 
+print(table1_comb, header.labels = c(all = 'Total', p.overall = 'P value'))
+
+
+# export as pdf
+export2pdf(table1_comb, file = 'table1.pdf', which.table="descr", nmax=TRUE, 
+           header.labels=c(all = 'Total', p.overall = 'P value'), 
+           caption= 'Baseline Characteristics and Clinical History of Patients with Post-COVID-19 Vaccination Adverse Reactions', 
+           width=Inf, strip=FALSE, first.strip=FALSE, background="#D2D2D2",
+           size=NULL,  landscape=FALSE, numcompiled=2)
+
+```
+### 3.2 Table 2 - Odd ratio table
+
+```{r}
+# Formatting 
+library(rstatix)
+
+## p-value formatting
+format_p_value <- function(df){
+  # indicate p_values that are less than 0.001 i.e., <0.001
+  # round other p_values to 3 decimal places
+  p_values <- df$P_value
+  p_values <- p_format(p_values, accuracy = 0.001)
+  for ( i in 1: length(p_values)){
+    if (p_values[i] != '<0.001'){
+      p_values[i] <- round((as.numeric(p_values[i])), digits = 3)
+    }
+  }
+  p_values
+}
+
+p_values_odd_df <- format_p_value(odd_df)
+p_values_full_df <- format_p_value(full_df)
+
+## decimal number rounding
+round_df <- function(x, digits) {
+    # round all numeric variables
+    # x: data frame 
+    # digits: number of digits to round
+    numeric_columns <- sapply(x, mode) == 'numeric'
+    x[numeric_columns] <-  round(x[numeric_columns], digits)
+    x
+}
+odd_df <- round_df(odd_df, 2)
+full_df <- round_df(full_df, 2)
+
+```
+
+```{r adjusted for age and sex }
+
+## factor name 
+factors <- c('Hospital admission status, Yes vs No', 
+'Post-vaccination disability, Yes vs No',
+'Life-threatening event, Yes vs No',
+'Birth defeat, Yes vs No')
+
+for (i in 8:11){
+  odd_df[i, 1] <- factors[i-7]
+}
+
+for (j in 12:26){
+  odd_df[j, 1] <- str_sub(odd_df[j, 1], 1, -3)
+}
+
+
+## merge two confidence interval columns into one
+library(tidyr)
+odd_df <- unite(odd_df, CI, c(CI_2.5, CI_97.5), sep= "-", remove = FALSE)
+odd_df$CI <- paste0("(", odd_df$CI, ")")
+odd_df<- unite(odd_df, 'OR(95%CI)', c(OR, CI), sep = "", remove = FALSE)
+
+log_reg_result <- data.frame(odd_df$Factors, odd_df$`OR(95%CI)`, p_values_odd_df)
+
+## add reference line
+line_age <-c('0 - 17', '1[Reference]', 'NA')
+log_reg_result <-rbind(log_reg_result[1,], line_age, log_reg_result[2:84, ])
+line_vac <- c('JANSSEN', '1[Reference]', 'NA')
+log_reg_result <- rbind(log_reg_result[1:83,], line_vac, 
+                        log_reg_result[- (1:83), ])
+names(log_reg_result) <- c('Factors', 'OR(95%CI)', 'P value')
+
+write.csv(log_reg_result, 'logit_results_1.csv')
+
+```
+
+```{r fully adjusted}
+full_df <- unite(full_df, CI, c(CI_2.5, CI_97.5), sep= "-", remove = FALSE)
+full_df$CI <- paste0("(", full_df$CI, ")")
+full_df<- unite(full_df, 'OR(95%CI)', c(OR, CI), sep = "", remove = FALSE)
+
+log_reg_result_full <- data.frame(full_df$`OR(95%CI)`, p_values_full_df)
+names(log_reg_result_full) <- c('OR(95%CI)', 'P value')
+
+## add age_group lines
+line_age_group <- data.frame(c(rep(" ", 6)), c(rep(" ", 6)))
+names(line_age_group) <- names(log_reg_result)[2:3]
+                             
+log_reg_result_full <-rbind(log_reg_result_full[1,], 
+                            line_age_group,
+                            log_reg_result_full[2:79,])
+## add reference line
+line_vac <- c('1[Reference]', 'NA')
+log_reg_result_full <- rbind(log_reg_result_full[1:83,], line_vac, 
+                        log_reg_result_full[- (1:83), ])
+
+log_reg_result_full[67,] <- c('NA', 'NA')
+
+write.csv(log_reg_result_full, 'logit_results_2.csv')
+```
