@@ -4,6 +4,8 @@
 ****
 ## Project Overview
 
+![Project process](project-overview.png)
+
 
 ***
 ## Data Collection
