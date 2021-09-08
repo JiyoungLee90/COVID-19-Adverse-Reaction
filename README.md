@@ -1,4 +1,4 @@
-# Risk Factors for Mortality of Patients with Post-COVID-19 Vaccination Adverse Reactions 
+# Risk Factors for Mortality in Patients with Post-COVID-19 Vaccination Adverse Reactions 
 
 
 ****
